@@ -10,85 +10,21 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
 
-    env:
-      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            build-essential git zip unzip \
-            autoconf automake libtool pkg-config \
-            zlib1g-dev libffi-dev libssl-dev \
-            gettext autopoint cmake ccache
-
-      - name: Install Python build tools
-        run: |
-          python -m pip install --upgrade "pip<24.0"
-          python -m pip install --upgrade "cython==0.29.37" virtualenv buildozer
-          buildozer --version
-
-      - name: Configure buildozer.spec
+      - name: Ensure version in buildozer.spec
         run: |
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
-          sed -i '/^android\.ndk/d' buildozer.spec
-          sed -i '/^android\.api/d' buildozer.spec
-          echo "=== buildozer.spec ==="
           cat buildozer.spec
-          echo "======================"
 
-      - name: Accept Android SDK licenses
-        run: |
-          mkdir -p "$ANDROID_HOME/licenses"
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
-          echo -e "\n859f317696f67ef3d7f30a50a5560e7834b43903" >> "$ANDROID_HOME/licenses/android-sdk-license"
-          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/google-gdk-license"
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/google-gdk-license"
-          echo -e "\ne9acab5b5fbb560a72797e95dcda4b719fb138b3" > "$ANDROID_HOME/licenses/intel-android-extra-license"
-
-      - name: Bootstrap SDK and create sdkmanager wrapper
-        run: |
-          # Запускаем buildozer один раз, чтобы он скачал SDK
-          buildozer android debug --bootstrap || true
-          
-          # Создаём обёртку по старому пути, которую ждёт buildozer
-          mkdir -p "$ANDROID_HOME/tools/bin"
-          cat > "$ANDROID_HOME/tools/bin/sdkmanager" <<'EOF'
-          #!/bin/bash
-          exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
-          EOF
-          chmod +x "$ANDROID_HOME/tools/bin/sdkmanager"
-          
-          # Проверяем, что обёртка работает
-          "$ANDROID_HOME/tools/bin/sdkmanager" --list || echo "sdkmanager wrapper created"
-
-      - name: Install Android build-tools
-        run: |
-          SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
-          $SDKMANAGER "build-tools;34.0.0" "platforms;android-33" "platform-tools" || true
-          ls -la "$ANDROID_HOME/build-tools" || true
-
-      - name: Build APK
-        run: |
-          set -o pipefail
-          buildozer -v android debug 2>&1 | tee build.log
+      - name: Build APK using Docker (официальный образ Kivy)
+        uses: docker://kivy/buildozer:latest
+        with:
+          args: buildozer android debug
+        env:
+          BUILD_UID: 1001
 
       - name: Upload APK
         if: success()
@@ -97,10 +33,12 @@ jobs:
           name: BetonCalc-APK
           path: bin/*.apk
 
-      - name: Upload build log
-        if: always()
+      - name: Upload build log on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build.log
+          path: |
+            .buildozer/
+            bin/
           if-no-files-found: warn
