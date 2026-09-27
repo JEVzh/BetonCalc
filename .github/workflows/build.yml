@@ -5,6 +5,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
+  ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -21,28 +25,35 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential git ccache \
-            zip unzip \
+            build-essential git ccache zip unzip \
             autoconf automake libtool pkg-config \
             zlib1g-dev libffi-dev libssl-dev \
-            gettext autopoint cmake \
-            openjdk-17-jdk
+            gettext autopoint cmake openjdk-17-jdk
 
-      - name: Install Buildozer (pip зафиксирован!)
+      - name: Install Buildozer
         run: |
           python -m pip install "pip==25.0.1"
           python -m pip install --upgrade buildozer cython virtualenv
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK (современный + legacy-путь)
         run: |
-          export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
-          mkdir -p $ANDROID_HOME/cmdline-tools
+          set -e
+          SDK="$ANDROID_HOME"
+          mkdir -p "$SDK/cmdline-tools" "$SDK/tools/bin" "$SDK/licenses"
           cd /tmp
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
-          mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-33"
+          rm -rf "$SDK/cmdline-tools/latest"
+          mv cmdline-tools "$SDK/cmdline-tools/latest"
+          # Обёртка по старому пути, которую ждёт buildozer:
+          cat > "$SDK/tools/bin/sdkmanager" <<EOF
+          #!/bin/bash
+          exec "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "\$@"
+          EOF
+          chmod +x "$SDK/tools/bin/sdkmanager"
+          yes | "$SDK/tools/bin/sdkmanager" --licenses || true
+          "$SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-33"
+          ls "$SDK"
 
       - name: Ensure version in buildozer.spec
         run: |
