@@ -2,14 +2,15 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -19,27 +20,24 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential git \
-            python3-dev ffmpeg \
-            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
-            zlib1g-dev libgstreamer1.0-dev gstreamer1.0-plugins-base \
-            openjdk-17-jdk unzip autoconf automake libtool pkg-config \
-            libffi-dev libssl-dev gettext autopoint cmake
-          pip install --upgrade pip
-          pip install --upgrade buildozer cython virtualenv
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git ccache \
+            zip unzip \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libffi-dev libssl-dev \
+            gettext autopoint cmake \
+            openjdk-17-jdk
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade buildozer cython virtualenv
 
-      - name: Fix buildozer.spec (ensure version exists)
+      - name: Ensure version in buildozer.spec
         run: |
-          if ! grep -q "^version" buildozer.spec; then
-            sed -i '/\[app\]/a version = 0.1' buildozer.spec
-          fi
+          grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
 
-      - name: Build APK with Buildozer
-        run: buildozer android debug
+      - name: Build APK
+        run: buildozer -v android debug
 
-      - name: Upload APK as Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BetonCalc-APK
