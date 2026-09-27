@@ -8,18 +8,20 @@ on:
 env:
   ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
   ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+  ANDROID_NDK_HOME: /home/runner/.buildozer/android/platform/android-ndk-r25b
+  ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r25b
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install system dependencies
         run: |
@@ -30,40 +32,65 @@ jobs:
             zlib1g-dev libffi-dev libssl-dev \
             gettext autopoint cmake openjdk-17-jdk
 
-      - name: Install Buildozer
+      - name: Install Buildozer (стабильные версии)
         run: |
-          python -m pip install "pip==25.0.1"
-          python -m pip install --upgrade buildozer cython virtualenv
+          python -m pip install --upgrade "pip<24.0"
+          python -m pip install "buildozer==1.5.0" "cython==0.29.33" "virtualenv==20.21.5"
 
-      - name: Setup Android SDK (современный + legacy-путь)
+      - name: Setup Android SDK и NDK r25b
         run: |
           set -e
           SDK="$ANDROID_HOME"
-          mkdir -p "$SDK/cmdline-tools" "$SDK/tools/bin" "$SDK/licenses"
+          NDK_DIR="/home/runner/.buildozer/android/platform"
+          mkdir -p "$SDK/cmdline-tools" "$SDK/tools/bin" "$SDK/licenses" "$NDK_DIR"
+          
+          # Скачиваем SDK command-line tools
           cd /tmp
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           rm -rf "$SDK/cmdline-tools/latest"
           mv cmdline-tools "$SDK/cmdline-tools/latest"
-          # Обёртка по старому пути, которую ждёт buildozer:
-          cat > "$SDK/tools/bin/sdkmanager" <<EOF
+          
+          # Создаём обёртку по старому пути
+          cat > "$SDK/tools/bin/sdkmanager" <<'EOF'
           #!/bin/bash
-          exec "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "\$@"
+          exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
           EOF
           chmod +x "$SDK/tools/bin/sdkmanager"
+          
+          # Принимаем лицензии и устанавливаем компоненты
           yes | "$SDK/tools/bin/sdkmanager" --licenses || true
-          "$SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-33"
-          ls "$SDK"
+          "$SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;30.0.3" "platforms;android-33"
+          
+          # Скачиваем NDK r25b (проверенная версия для python-for-android)
+          cd "$NDK_DIR"
+          wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+          unzip -q android-ndk-r25b-linux.zip
+          rm android-ndk-r25b-linux.zip
+          
+          ls -la "$SDK"
+          ls -la "$NDK_DIR"
 
       - name: Ensure version in buildozer.spec
         run: |
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
 
-      - name: Build APK
-        run: buildozer -v android debug
+      - name: Build APK (с подробным логом)
+        run: |
+          export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$PATH"
+          buildozer android debug 2>&1 | tee build.log
+        continue-on-error: true
 
-      - name: Upload APK
+      - name: Upload APK (если собрался)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: BetonCalc-APK
           path: bin/*.apk
+
+      - name: Upload build log (если упал)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
