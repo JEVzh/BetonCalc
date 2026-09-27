@@ -10,52 +10,90 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
 
+    env:
+      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git zip unzip \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libffi-dev libssl-dev \
+            gettext autopoint cmake ccache \
+            libltdl-dev
+
+      - name: Install Python build tools
+        run: |
+          # КРИТИЧНО: pip < 24.0 — в более новых удалён класс BuildDependencyInstallError
+          python -m pip install --upgrade "pip<24.0"
+          python -m pip install --upgrade \
+            "cython==0.29.37" \
+            virtualenv \
+            "buildozer==1.5.0"
+
       - name: Configure buildozer.spec
         run: |
-          # Гарантируем version (обязательно)
+          # version — обязательное поле
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
           
-          # Отключаем предупреждение про root (иначе упадёт в CI)
-          if ! grep -q '^warn_on_root' buildozer.spec; then
-            sed -i '/^\[buildozer\]/a warn_on_root = 0' buildozer.spec
-          else
-            sed -i 's/^warn_on_root.*/warn_on_root = 0/' buildozer.spec
-          fi
+          # Отключаем предупреждение про root
+          grep -q '^warn_on_root' buildozer.spec || sed -i '/\[buildozer\]/a warn_on_root = 0' buildozer.spec
           
-          # Автоматическое принятие лицензий Android SDK
-          if ! grep -q '^android.accept_sdk_license' buildozer.spec; then
-            sed -i '/^\[app\]/a android.accept_sdk_license = True' buildozer.spec
-          fi
+          # Авто-принятие лицензий SDK
+          grep -q '^android.accept_sdk_license' buildozer.spec || sed -i '/\[app\]/a android.accept_sdk_license = True' buildozer.spec
           
-          # Используем стабильный Python 3.11 для Android-сборки (не 3.14 из образа)
-          if ! grep -q '^p4a.python_version' buildozer.spec; then
-            sed -i '/^\[app\]/a p4a.python_version = 3.11' buildozer.spec
-          fi
+          # Python 3.11 для Android (а не 3.14 из хоста)
+          grep -q '^p4a.python_version' buildozer.spec || sed -i '/\[app\]/a p4a.python_version = 3.11' buildozer.spec
+          
+          # Удаляем битые android.ndk и android.api, если есть
+          sed -i '/^android\.ndk/d' buildozer.spec
+          sed -i '/^android\.api/d' buildozer.spec
           
           echo "=== buildozer.spec ==="
           cat buildozer.spec
           echo "======================"
 
-      - name: Cache Buildozer global packages
+      - name: Accept Android SDK licenses (заранее)
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo -e "\n859f317696f67ef3d7f30a50a5560e7834b43903" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/google-gdk-license"
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/google-gdk-license"
+          echo -e "\ne9acab5b5fbb560a72797e95dcda4b719fb138b3" > "$ANDROID_HOME/licenses/intel-android-extra-license"
+
+      - name: Cache Buildozer packages
         uses: actions/cache@v4
         with:
-          path: /home/runner/.buildozer
-          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          path: |
+            /home/runner/.buildozer/android/packages
+            /home/runner/.buildozer/android/platform
+          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-${{ runner.os }}-
+            buildozer-v1-${{ runner.os }}-
 
-      - name: Build APK (Docker, от пользователя runner, не root)
-        uses: docker://kivy/buildozer:latest
-        with:
-          args: buildozer -v android debug
-        env:
-          USER: runner
-          HOME: /home/runner
-          BUILD_UID: 1001
+      - name: Build APK
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
 
       - name: Upload APK
         if: success()
@@ -69,8 +107,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: |
-            .buildozer/android/platform/build-*/build.log
-            .buildozer/logs/
-            build.log
+          path: build.log
           if-no-files-found: ignore
