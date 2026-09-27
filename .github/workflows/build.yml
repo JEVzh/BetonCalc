@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -28,55 +29,36 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            git \
-            zip unzip \
+            build-essential git zip unzip \
             autoconf automake libtool pkg-config \
-            zlib1g-dev \
-            libffi-dev \
-            libssl-dev \
-            gettext \
-            autopoint \
-            cmake \
-            openjdk-17-jdk \
-            ccache
+            zlib1g-dev libffi-dev libssl-dev \
+            gettext autopoint cmake ccache
 
       - name: Install Python build tools
         run: |
-          # КРИТИЧНО: pip < 24.0, т.к. в более новых версиях удалён класс
-          # BuildDependencyInstallError, который использует python-for-android
           python -m pip install --upgrade "pip<24.0"
-          # cython 0.29.37 — последняя стабильная версия для python-for-android
-          python -m pip install --upgrade \
-            "cython==0.29.37" \
-            virtualenv \
-            buildozer
+          python -m pip install --upgrade "cython==0.29.37" virtualenv buildozer
+          buildozer --version
 
       - name: Configure buildozer.spec
         run: |
-          test -f buildozer.spec || buildozer init
+          # Гарантируем только наличие version (это единственное обязательное поле)
+          grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
           
-          # Гарантируем наличие version
-          if ! grep -q '^version' buildozer.spec; then
-            sed -i '/\[app\]/a version = 0.1' buildozer.spec
-          fi
+          # Если вдруг осталась битая строка android.ndk = r25b — удаляем её
+          sed -i '/^android\.ndk/d' buildozer.spec
           
-          # Фиксируем стабильный NDK r25b (заменяем если уже есть)
-          if grep -q '^android.ndk' buildozer.spec; then
-            sed -i 's/^android.ndk.*/android.ndk = r25b/' buildozer.spec
-          else
-            sed -i '/\[app\]/a android.ndk = r25b' buildozer.spec
-          fi
+          # Если осталась битая строка android.api — удаляем её (buildozer выберет сам)
+          sed -i '/^android\.api/d' buildozer.spec
           
-          # Фиксируем API level
-          if grep -q '^android.api' buildozer.spec; then
-            sed -i 's/^android.api.*/android.api = 33/' buildozer.spec
-          else
-            sed -i '/\[app\]/a android.api = 33' buildozer.spec
-          fi
+          echo "=== buildozer.spec ==="
+          cat buildozer.spec
+          echo "======================"
 
       - name: Build APK
-        run: buildozer -v android debug
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
 
       - name: Upload APK
         if: success()
@@ -85,11 +67,10 @@ jobs:
           name: BetonCalc-APK
           path: bin/*.apk
 
-      - name: Upload logs on failure
-        if: failure()
+      - name: Upload build log (всегда)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: buildozer-logs
-          path: |
-            .buildozer/android/platform/build-*/
-            .buildozer/logs/
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
