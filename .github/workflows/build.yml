@@ -5,77 +5,78 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-env:
-  ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
-  ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
-  ANDROID_NDK_HOME: /home/runner/.buildozer/android/platform/android-ndk-r25b
-  ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r25b
-
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            build-essential git ccache zip unzip \
+            build-essential \
+            git \
+            zip unzip \
             autoconf automake libtool pkg-config \
-            zlib1g-dev libffi-dev libssl-dev \
-            gettext autopoint cmake openjdk-17-jdk
+            zlib1g-dev \
+            libffi-dev \
+            libssl-dev \
+            gettext \
+            autopoint \
+            cmake \
+            openjdk-17-jdk \
+            ccache
 
-      - name: Install Buildozer (стабильные версии)
+      - name: Install Python build tools
         run: |
+          # КРИТИЧНО: pip < 24.0, т.к. в более новых версиях удалён класс
+          # BuildDependencyInstallError, который использует python-for-android
           python -m pip install --upgrade "pip<24.0"
-          python -m pip install "buildozer==1.5.0" "cython==0.29.33" virtualenv
+          # cython 0.29.37 — последняя стабильная версия для python-for-android
+          python -m pip install --upgrade \
+            "cython==0.29.37" \
+            virtualenv \
+            buildozer
 
-      - name: Setup Android SDK и NDK r25b
+      - name: Configure buildozer.spec
         run: |
-          set -e
-          SDK="$ANDROID_HOME"
-          NDK_DIR="/home/runner/.buildozer/android/platform"
-          mkdir -p "$SDK/cmdline-tools" "$SDK/tools/bin" "$SDK/licenses" "$NDK_DIR"
+          test -f buildozer.spec || buildozer init
           
-          cd /tmp
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          rm -rf "$SDK/cmdline-tools/latest"
-          mv cmdline-tools "$SDK/cmdline-tools/latest"
+          # Гарантируем наличие version
+          if ! grep -q '^version' buildozer.spec; then
+            sed -i '/\[app\]/a version = 0.1' buildozer.spec
+          fi
           
-          cat > "$SDK/tools/bin/sdkmanager" <<'EOF'
-          #!/bin/bash
-          exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
-          EOF
-          chmod +x "$SDK/tools/bin/sdkmanager"
+          # Фиксируем стабильный NDK r25b (заменяем если уже есть)
+          if grep -q '^android.ndk' buildozer.spec; then
+            sed -i 's/^android.ndk.*/android.ndk = r25b/' buildozer.spec
+          else
+            sed -i '/\[app\]/a android.ndk = r25b' buildozer.spec
+          fi
           
-          yes | "$SDK/tools/bin/sdkmanager" --licenses || true
-          "$SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;30.0.3" "platforms;android-33"
-          
-          cd "$NDK_DIR"
-          wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-          unzip -q android-ndk-r25b-linux.zip
-          rm android-ndk-r25b-linux.zip
-          
-          ls -la "$SDK"
-          ls -la "$NDK_DIR"
-
-      - name: Ensure version in buildozer.spec
-        run: |
-          grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
+          # Фиксируем API level
+          if grep -q '^android.api' buildozer.spec; then
+            sed -i 's/^android.api.*/android.api = 33/' buildozer.spec
+          else
+            sed -i '/\[app\]/a android.api = 33' buildozer.spec
+          fi
 
       - name: Build APK
-        run: |
-          export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$PATH"
-          buildozer android debug 2>&1 | tee build.log
-        continue-on-error: true
+        run: buildozer -v android debug
 
       - name: Upload APK
         if: success()
@@ -84,9 +85,11 @@ jobs:
           name: BetonCalc-APK
           path: bin/*.apk
 
-      - name: Upload build log
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: buildozer-logs
+          path: |
+            .buildozer/android/platform/build-*/
+            .buildozer/logs/
