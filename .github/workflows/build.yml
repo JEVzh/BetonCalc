@@ -37,11 +37,10 @@ jobs:
             autoconf automake libtool pkg-config \
             zlib1g-dev libffi-dev libssl-dev \
             gettext autopoint cmake ccache \
-            libltdl-dev
+            libltdl-dev wget
 
       - name: Install Python build tools
         run: |
-          # КРИТИЧНО: pip < 24.0 — в более новых удалён класс BuildDependencyInstallError
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade \
             "cython==0.29.37" \
@@ -50,27 +49,17 @@ jobs:
 
       - name: Configure buildozer.spec
         run: |
-          # version — обязательное поле
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
-          
-          # Отключаем предупреждение про root
           grep -q '^warn_on_root' buildozer.spec || sed -i '/\[buildozer\]/a warn_on_root = 0' buildozer.spec
-          
-          # Авто-принятие лицензий SDK
           grep -q '^android.accept_sdk_license' buildozer.spec || sed -i '/\[app\]/a android.accept_sdk_license = True' buildozer.spec
-          
-          # Python 3.11 для Android (а не 3.14 из хоста)
           grep -q '^p4a.python_version' buildozer.spec || sed -i '/\[app\]/a p4a.python_version = 3.11' buildozer.spec
-          
-          # Удаляем битые android.ndk и android.api, если есть
           sed -i '/^android\.ndk/d' buildozer.spec
           sed -i '/^android\.api/d' buildozer.spec
-          
           echo "=== buildozer.spec ==="
           cat buildozer.spec
           echo "======================"
 
-      - name: Accept Android SDK licenses (заранее)
+      - name: Accept Android SDK licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
@@ -80,15 +69,42 @@ jobs:
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/google-gdk-license"
           echo -e "\ne9acab5b5fbb560a72797e95dcda4b719fb138b3" > "$ANDROID_HOME/licenses/intel-android-extra-license"
 
+      - name: Download and setup Android SDK command-line tools
+        run: |
+          mkdir -p "$ANDROID_HOME"
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+          mv cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+          
+          # Создаём wrapper по старому пути, который ждёт buildozer
+          mkdir -p "$ANDROID_HOME/tools/bin"
+          cat > "$ANDROID_HOME/tools/bin/sdkmanager" <<'EOF'
+          #!/bin/bash
+          exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
+          EOF
+          chmod +x "$ANDROID_HOME/tools/bin/sdkmanager"
+          
+          # Проверяем, что wrapper работает
+          "$ANDROID_HOME/tools/bin/sdkmanager" --version || echo "sdkmanager wrapper ready"
+
+      - name: Install Android build-tools and platforms
+        run: |
+          SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
+          $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-33" || true
+          ls -la "$ANDROID_HOME/build-tools" || echo "build-tools installed"
+
       - name: Cache Buildozer packages
         uses: actions/cache@v4
         with:
           path: |
             /home/runner/.buildozer/android/packages
             /home/runner/.buildozer/android/platform
-          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-v2-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-v1-${{ runner.os }}-
+            buildozer-v2-${{ runner.os }}-
 
       - name: Build APK
         run: |
