@@ -33,6 +33,17 @@ jobs:
           python -m pip install "pip==25.0.1"
           python -m pip install --upgrade buildozer cython virtualenv
 
+      - name: Setup Android SDK
+        run: |
+          export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-33"
+
       - name: Ensure version in buildozer.spec
         run: |
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
