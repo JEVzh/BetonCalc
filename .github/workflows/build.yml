@@ -14,16 +14,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure version in buildozer.spec
+      - name: Configure buildozer.spec
         run: |
+          # Гарантируем version (обязательно)
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
+          
+          # Отключаем предупреждение про root (иначе упадёт в CI)
+          if ! grep -q '^warn_on_root' buildozer.spec; then
+            sed -i '/^\[buildozer\]/a warn_on_root = 0' buildozer.spec
+          else
+            sed -i 's/^warn_on_root.*/warn_on_root = 0/' buildozer.spec
+          fi
+          
+          # Автоматическое принятие лицензий Android SDK
+          if ! grep -q '^android.accept_sdk_license' buildozer.spec; then
+            sed -i '/^\[app\]/a android.accept_sdk_license = True' buildozer.spec
+          fi
+          
+          # Используем стабильный Python 3.11 для Android-сборки (не 3.14 из образа)
+          if ! grep -q '^p4a.python_version' buildozer.spec; then
+            sed -i '/^\[app\]/a p4a.python_version = 3.11' buildozer.spec
+          fi
+          
+          echo "=== buildozer.spec ==="
           cat buildozer.spec
+          echo "======================"
 
-      - name: Build APK using Docker (официальный образ Kivy)
+      - name: Cache Buildozer global packages
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-
+
+      - name: Build APK (Docker, от пользователя runner, не root)
         uses: docker://kivy/buildozer:latest
         with:
-          args: buildozer android debug
+          args: buildozer -v android debug
         env:
+          USER: runner
+          HOME: /home/runner
           BUILD_UID: 1001
 
       - name: Upload APK
@@ -39,6 +70,7 @@ jobs:
         with:
           name: build-log
           path: |
-            .buildozer/
-            bin/
-          if-no-files-found: warn
+            .buildozer/android/platform/build-*/build.log
+            .buildozer/logs/
+            build.log
+          if-no-files-found: ignore
