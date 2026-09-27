@@ -39,7 +39,7 @@ jobs:
             gettext autopoint cmake ccache \
             libltdl-dev wget
 
-      - name: Install Python build tools
+      - name: Install Python build tools (Cython 0.29.37 критичен!)
         run: |
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade \
@@ -52,9 +52,19 @@ jobs:
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
           grep -q '^warn_on_root' buildozer.spec || sed -i '/\[buildozer\]/a warn_on_root = 0' buildozer.spec
           grep -q '^android.accept_sdk_license' buildozer.spec || sed -i '/\[app\]/a android.accept_sdk_license = True' buildozer.spec
-          grep -q '^p4a.python_version' buildozer.spec || sed -i '/\[app\]/a p4a.python_version = 3.11' buildozer.spec
+          
+          # КРИТИЧНО: явно указываем требования с версией Python
+          if grep -q '^requirements' buildozer.spec; then
+            sed -i 's/^requirements.*/requirements = python3==3.11.9,kivy/' buildozer.spec
+          else
+            sed -i '/\[app\]/a requirements = python3==3.11.9,kivy' buildozer.spec
+          fi
+          
+          # Удаляем битые строки
           sed -i '/^android\.ndk/d' buildozer.spec
           sed -i '/^android\.api/d' buildozer.spec
+          sed -i '/^p4a\.python_version/d' buildozer.spec
+          
           echo "=== buildozer.spec ==="
           cat buildozer.spec
           echo "======================"
@@ -79,22 +89,17 @@ jobs:
           rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mv cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
           
-          # Создаём wrapper по старому пути, который ждёт buildozer
           mkdir -p "$ANDROID_HOME/tools/bin"
           cat > "$ANDROID_HOME/tools/bin/sdkmanager" <<'EOF'
           #!/bin/bash
           exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
           EOF
           chmod +x "$ANDROID_HOME/tools/bin/sdkmanager"
-          
-          # Проверяем, что wrapper работает
-          "$ANDROID_HOME/tools/bin/sdkmanager" --version || echo "sdkmanager wrapper ready"
 
-      - name: Install Android build-tools and platforms
+      - name: Install Android build-tools
         run: |
           SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
           $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-33" || true
-          ls -la "$ANDROID_HOME/build-tools" || echo "build-tools installed"
 
       - name: Cache Buildozer packages
         uses: actions/cache@v4
@@ -102,9 +107,15 @@ jobs:
           path: |
             /home/runner/.buildozer/android/packages
             /home/runner/.buildozer/android/platform
-          key: buildozer-v2-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-v3-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-v2-${{ runner.os }}-
+            buildozer-v3-${{ runner.os }}-
+
+      - name: Clean old builds
+        run: |
+          # Удаляем старые сборки, чтобы не было конфликтов
+          rm -rf .buildozer/android/platform/build-*
+          rm -rf .buildozer/android/platform/python-for-android
 
       - name: Build APK
         run: |
