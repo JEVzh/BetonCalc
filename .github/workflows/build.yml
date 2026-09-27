@@ -46,46 +46,42 @@ jobs:
 
       - name: Configure buildozer.spec
         run: |
-          # Гарантируем наличие version (обязательное поле)
           grep -q '^version' buildozer.spec || sed -i '/\[app\]/a version = 0.1' buildozer.spec
-          
-          # Удаляем любые старые/битые строки android.ndk и android.api
           sed -i '/^android\.ndk/d' buildozer.spec
           sed -i '/^android\.api/d' buildozer.spec
-          
           echo "=== buildozer.spec ==="
           cat buildozer.spec
           echo "======================"
 
-      - name: Accept Android SDK licenses (заранее)
+      - name: Accept Android SDK licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
-          # Хеши стандартных лицензий Android SDK — стабильны уже много лет
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
           echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           echo -e "\n859f317696f67ef3d7f30a50a5560e7834b43903" >> "$ANDROID_HOME/licenses/android-sdk-license"
           echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/google-gdk-license"
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/google-gdk-license"
           echo -e "\ne9acab5b5fbb560a72797e95dcda4b719fb138b3" > "$ANDROID_HOME/licenses/intel-android-extra-license"
-          ls -la "$ANDROID_HOME/licenses"
 
-      - name: Pre-install Android build-tools
+      - name: Bootstrap SDK and create sdkmanager wrapper
         run: |
-          # Запускаем buildozer один раз только для установки SDK (без компиляции)
-          # Он скачает SDK, cmdline-tools и platform-tools
+          # Запускаем buildozer один раз, чтобы он скачал SDK
           buildozer android debug --bootstrap || true
           
-          # Теперь ставим build-tools 34.0.0 явно (стабильная версия)
-          # Путь к sdkmanager: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
-          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME"
-          elif [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager --sdk_root=$ANDROID_HOME"
-          else
-            echo "sdkmanager not found yet, skipping pre-install"
-            exit 0
-          fi
+          # Создаём обёртку по старому пути, которую ждёт buildozer
+          mkdir -p "$ANDROID_HOME/tools/bin"
+          cat > "$ANDROID_HOME/tools/bin/sdkmanager" <<'EOF'
+          #!/bin/bash
+          exec "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "$@"
+          EOF
+          chmod +x "$ANDROID_HOME/tools/bin/sdkmanager"
           
+          # Проверяем, что обёртка работает
+          "$ANDROID_HOME/tools/bin/sdkmanager" --list || echo "sdkmanager wrapper created"
+
+      - name: Install Android build-tools
+        run: |
+          SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
           $SDKMANAGER "build-tools;34.0.0" "platforms;android-33" "platform-tools" || true
           ls -la "$ANDROID_HOME/build-tools" || true
 
@@ -101,7 +97,7 @@ jobs:
           name: BetonCalc-APK
           path: bin/*.apk
 
-      - name: Upload build log (всегда)
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
