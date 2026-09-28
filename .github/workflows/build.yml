@@ -18,6 +18,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: STEP 1 — ПЕРЕЗАПИСАТЬ buildozer.spec (источник истины)
+        run: |
+          cat > buildozer.spec << 'EOF'
+          [app]
+          title = BetonCalc
+          package.name = betoncalc
+          package.domain = org.betoncalc
+          source.dir = .
+          source.include_exts = py,png
+          version = 0.1
+          requirements = python3,hostpython3,kivy
+          orientation = portrait
+          fullscreen = 0
+          android.accept_sdk_license = True
+
+          [buildozer]
+          log_level = 2
+          warn_on_root = 0
+          EOF
+          if [ -f icon.png ]; then echo "icon.filename = ./icon.png" >> buildozer.spec; fi
+          if [ -f icon_background.png ]; then echo "android.adaptive_icon_background = ./icon_background.png" >> buildozer.spec; fi
+          if [ -f icon_foreground.png ]; then echo "android.adaptive_icon_foreground = ./icon_foreground.png" >> buildozer.spec; fi
+          echo "===== FINAL buildozer.spec ====="
+          cat buildozer.spec
+          echo "================================"
+          # Жёсткие проверки — если не прошло, падаем СРАЗУ, а не через 20 минут
+          grep -qx 'requirements = python3,hostpython3,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
+          grep -q '^android\.ndk' buildozer.spec && { echo "FAIL: остался android.ndk"; exit 1; }
+          grep -q '^android\.api' buildozer.spec && { echo "FAIL: остался android.api"; exit 1; }
+          echo "OK: spec эталонный"
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -43,39 +74,6 @@ jobs:
         run: |
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade "cython==0.29.37" virtualenv "buildozer==1.5.0"
-
-      - name: Перезаписать buildozer.spec ПРАВИЛЬНЫМ содержимым
-        run: |
-          # ПОЛНОСТЬЮ заменяем файл, игнорируя то, что лежит в репозитории
-          cat > buildozer.spec << 'EOF'
-          [app]
-          title = BetonCalc
-          package.name = betoncalc
-          package.domain = org.betoncalc
-          source.dir = .
-          source.include_exts = py,png
-          version = 0.1
-          requirements = python3,hostpython3,kivy
-          orientation = portrait
-          fullscreen = 0
-          android.accept_sdk_license = True
-          icon.filename = ./icon.png
-          android.adaptive_icon_background = ./icon_background.png
-          android.adaptive_icon_foreground = ./icon_foreground.png
-          
-          [buildozer]
-          log_level = 2
-          warn_on_root = 0
-          EOF
-          
-          echo "===== buildozer.spec (создан workflow) ====="
-          cat buildozer.spec
-          echo "============================================"
-          
-          # Жёсткий контроль: эти две строки ОБЯЗАНЫ быть
-          grep -q 'requirements = python3,hostpython3,kivy' buildozer.spec || { echo "ОШИБКА: requirements неверны"; exit 1; }
-          grep -qv 'android.ndk' buildozer.spec || { echo "ОШИБКА: остался android.ndk"; exit 1; }
-          echo "✓ spec корректен"
 
       - name: Accept Android SDK licenses
         run: |
