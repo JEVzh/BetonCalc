@@ -5,18 +5,13 @@ package.domain = org.betoncalc
 source.dir = .
 source.include_exts = py,png
 version = 0.1
-
-# КЛЮЧЕВАЯ СТРОКА: python3 и hostpython3 ОДНОЙ версии
 requirements = python3==3.11.9,hostpython3==3.11.9,kivy
-
 orientation = portrait
 fullscreen = 0
-
 android.accept_sdk_license = True
-
-icon.filename = ./icon.png
-android.adaptive_icon_background = ./icon_background.png
-android.adaptive_icon_foreground = ./icon_foreground.png
+android.api = 33
+android.minapi = 21
+android.ndk = r25b
 
 [buildozer]
 log_level = 2
