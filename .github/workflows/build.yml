@@ -39,7 +39,7 @@ jobs:
             gettext autopoint cmake ccache \
             libltdl-dev wget
 
-      - name: Install Python build tools (Cython 0.29.37 критичен!)
+      - name: Install Python build tools
         run: |
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade \
@@ -53,14 +53,13 @@ jobs:
           grep -q '^warn_on_root' buildozer.spec || sed -i '/\[buildozer\]/a warn_on_root = 0' buildozer.spec
           grep -q '^android.accept_sdk_license' buildozer.spec || sed -i '/\[app\]/a android.accept_sdk_license = True' buildozer.spec
           
-          # КРИТИЧНО: явно указываем требования с версией Python
+          # КРИТИЧНО: и python3, и hostpython3 одной версии!
           if grep -q '^requirements' buildozer.spec; then
-            sed -i 's/^requirements.*/requirements = python3==3.11.9,kivy/' buildozer.spec
+            sed -i 's/^requirements.*/requirements = python3==3.11.9,hostpython3==3.11.9,kivy/' buildozer.spec
           else
-            sed -i '/\[app\]/a requirements = python3==3.11.9,kivy' buildozer.spec
+            sed -i '/\[app\]/a requirements = python3==3.11.9,hostpython3==3.11.9,kivy' buildozer.spec
           fi
           
-          # Удаляем битые строки
           sed -i '/^android\.ndk/d' buildozer.spec
           sed -i '/^android\.api/d' buildozer.spec
           sed -i '/^p4a\.python_version/d' buildozer.spec
@@ -107,13 +106,13 @@ jobs:
           path: |
             /home/runner/.buildozer/android/packages
             /home/runner/.buildozer/android/platform
-          key: buildozer-v3-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-v4-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-v3-${{ runner.os }}-
+            buildozer-v4-${{ runner.os }}-
 
-      - name: Clean old builds
+      - name: Clean old builds (обязательно!)
         run: |
-          # Удаляем старые сборки, чтобы не было конфликтов
+          # Удаляем старые сборки — там мог остаться hostpython3 3.14
           rm -rf .buildozer/android/platform/build-*
           rm -rf .buildozer/android/platform/python-for-android
 
