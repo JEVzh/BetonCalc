@@ -5,7 +5,7 @@ package.domain = org.betoncalc
 source.dir = .
 source.include_exts = py,png
 version = 0.1
-requirements = python3==3.11.9,hostpython3==3.11.9,kivy
+requirements = python3,hostpython3,kivy
 orientation = portrait
 fullscreen = 0
 android.accept_sdk_license = True
