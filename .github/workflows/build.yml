@@ -28,7 +28,7 @@ jobs:
           source.dir = .
           source.include_exts = py,png
           version = 0.1
-          requirements = python3,hostpython3,kivy
+          requirements = python3==3.12.11,hostpython3==3.12.11,kivy
           orientation = portrait
           fullscreen = 0
           android.accept_sdk_license = True
@@ -43,8 +43,7 @@ jobs:
           echo "===== FINAL buildozer.spec ====="
           cat buildozer.spec
           echo "================================"
-          # Жёсткие проверки — если не прошло, падаем СРАЗУ, а не через 20 минут
-          grep -qx 'requirements = python3,hostpython3,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
+          grep -qx 'requirements = python3==3.12.11,hostpython3==3.12.11,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
           grep -q '^android\.ndk' buildozer.spec && { echo "FAIL: остался android.ndk"; exit 1; }
           grep -q '^android\.api' buildozer.spec && { echo "FAIL: остался android.api"; exit 1; }
           echo "OK: spec эталонный"
@@ -100,7 +99,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/.buildozer/android/packages
-          key: buildozer-pkgs-v1
+          key: buildozer-pkgs-py312-v1
 
       - name: Clean old builds
         run: |
