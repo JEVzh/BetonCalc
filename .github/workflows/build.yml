@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
 
+    env:
+      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,37 +44,65 @@ jobs:
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade "cython==0.29.37" virtualenv "buildozer==1.5.0"
 
-      - name: Verify buildozer.spec has hostpython3
+      - name: Перезаписать buildozer.spec ПРАВИЛЬНЫМ содержимым
         run: |
-          echo "=== buildozer.spec ==="
+          # ПОЛНОСТЬЮ заменяем файл, игнорируя то, что лежит в репозитории
+          cat > buildozer.spec << 'EOF'
+          [app]
+          title = BetonCalc
+          package.name = betoncalc
+          package.domain = org.betoncalc
+          source.dir = .
+          source.include_exts = py,png
+          version = 0.1
+          requirements = python3,hostpython3,kivy
+          orientation = portrait
+          fullscreen = 0
+          android.accept_sdk_license = True
+          icon.filename = ./icon.png
+          android.adaptive_icon_background = ./icon_background.png
+          android.adaptive_icon_foreground = ./icon_foreground.png
+          
+          [buildozer]
+          log_level = 2
+          warn_on_root = 0
+          EOF
+          
+          echo "===== buildozer.spec (создан workflow) ====="
           cat buildozer.spec
-          echo "======================"
-          if ! grep -q 'hostpython3' buildozer.spec; then
-            echo "ОШИБКА: в buildozer.spec нет hostpython3!"
-            echo "Откройте репозиторий и загрузите правильный spec."
-            exit 1
-          fi
-          echo "✓ buildozer.spec корректен"
+          echo "============================================"
+          
+          # Жёсткий контроль: эти две строки ОБЯЗАНЫ быть
+          grep -q 'requirements = python3,hostpython3,kivy' buildozer.spec || { echo "ОШИБКА: requirements неверны"; exit 1; }
+          grep -qv 'android.ndk' buildozer.spec || { echo "ОШИБКА: остался android.ndk"; exit 1; }
+          echo "✓ spec корректен"
 
       - name: Accept Android SDK licenses
         run: |
-          mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+          mkdir -p "$ANDROID_HOME/licenses"
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo -e "\n859f317696f67ef3d7f30a50a5560e7834b43903" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/google-gdk-license"
 
       - name: Setup sdkmanager wrapper
         run: |
-          SDK=/home/runner/.buildozer/android/platform/android-sdk
-          mkdir -p "$SDK"
+          mkdir -p "$ANDROID_HOME"
           cd /tmp
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
-          mkdir -p "$SDK/cmdline-tools"
-          rm -rf "$SDK/cmdline-tools/latest"
-          mv cmdline-tools "$SDK/cmdline-tools/latest"
-          mkdir -p "$SDK/tools/bin"
-          printf '#!/bin/bash\nexec "%s/cmdline-tools/latest/bin/sdkmanager" --sdk_root="%s" "$@"\n' "$SDK" "$SDK" > "$SDK/tools/bin/sdkmanager"
-          chmod +x "$SDK/tools/bin/sdkmanager"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+          mv cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+          mkdir -p "$ANDROID_HOME/tools/bin"
+          printf '#!/bin/bash\nexec "%s/cmdline-tools/latest/bin/sdkmanager" --sdk_root="%s" "$@"\n' "$ANDROID_HOME" "$ANDROID_HOME" > "$ANDROID_HOME/tools/bin/sdkmanager"
+          chmod +x "$ANDROID_HOME/tools/bin/sdkmanager"
+
+      - name: Cache downloaded packages
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.buildozer/android/packages
+          key: buildozer-pkgs-v1
 
       - name: Clean old builds
         run: |
