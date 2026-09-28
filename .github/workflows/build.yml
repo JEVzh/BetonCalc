@@ -40,26 +40,12 @@ jobs:
           python -m pip install --upgrade "pip<24.0"
           python -m pip install --upgrade "cython==0.29.37" virtualenv "buildozer==1.5.0"
 
-      - name: Verify buildozer.spec (контроль!)
-        run: |
-          echo "=== buildozer.spec ==="
-          cat buildozer.spec
-          echo "======================"
-          # Жёсткий контроль: строка с hostpython3 ОБЯЗАНА быть
-          if ! grep -q 'hostpython3==3.11.9' buildozer.spec; then
-            echo "ОШИБКА: в buildozer.spec нет hostpython3==3.11.9!"
-            echo "Откройте репозиторий и отредактируйте файл вручную."
-            exit 1
-          fi
-          echo "✓ buildozer.spec корректен"
-
       - name: Accept Android SDK licenses
         run: |
           mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
           echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
           echo -e "\n859f317696f67ef3d7f30a50a5560e7834b43903" >> /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > /home/runner/.buildozer/android/platform/android-sdk/licenses/google-gdk-license
 
       - name: Setup Android SDK command-line tools
         run: |
@@ -80,15 +66,17 @@ jobs:
           SDK=/home/runner/.buildozer/android/platform/android-sdk
           "$SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-33" || true
 
-      - name: Clean old build artifacts
+      - name: Clean all previous builds
         run: |
-          rm -rf .buildozer/android/platform/build-*
-          rm -rf .buildozer/android/platform/python-for-android
+          rm -rf .buildozer
+          rm -rf bin
 
-      - name: Build APK
+      - name: Build APK (с явным hostpython3 через CLI!)
         run: |
           set -o pipefail
-          buildozer -v android debug 2>&1 | tee build.log
+          buildozer -v \
+            --requirements "python3==3.11.9,hostpython3==3.11.9,kivy" \
+            android debug 2>&1 | tee build.log
 
       - name: Upload APK
         if: success()
