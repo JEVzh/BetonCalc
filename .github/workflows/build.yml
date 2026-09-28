@@ -32,6 +32,7 @@ jobs:
           orientation = portrait
           fullscreen = 0
           android.accept_sdk_license = True
+          android.javabuildtool = ant
 
           [buildozer]
           log_level = 2
@@ -99,7 +100,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/.buildozer/android/packages
-          key: buildozer-pkgs-py312-v1
+          key: buildozer-pkgs-py312-ant-v1
 
       - name: Clean old builds
         run: |
@@ -111,14 +112,43 @@ jobs:
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
-      - name: Upload APK
-        if: success()
+      # ---- ЗАГРУЗКА APK: при любом исходе, чтобы не потерять собранный файл ----
+      - name: Upload APK (всегда, если файл появился)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BetonCalc-APK
           path: bin/*.apk
+          if-no-files-found: ignore
 
-      - name: Upload build log on failure
+      # ---- КОМПАКТНЫЙ ДИАГНОЗ: вытаскиваем окно вокруг первой ошибки ----
+      - name: Extract error snippet (диагноз в маленьком артефакте)
+        if: failure()
+        run: |
+          echo "Ищу первую строку с ошибкой в build.log ..."
+          LINE=$(grep -nE 'Traceback|\[ERROR\]|Build failed|Error:|error:|Exception' build.log | head -n1 | cut -d: -f1)
+          if [ -n "$LINE" ]; then
+            START=$((LINE-15)); [ "$START" -lt 1 ] && START=1
+            END=$((LINE+40))
+            echo "Первая ошибка на строке $LINE — печатаю окно ${START}..${END}"
+            sed -n "${START},${END}p" build.log > error-snippet.txt
+          else
+            echo "Явных маркеров ошибки не найдено — печатаю последние 80 строк лога"
+            tail -n 80 build.log > error-snippet.txt
+          fi
+          echo "===== error-snippet.txt ====="
+          cat error-snippet.txt
+          echo "============================="
+
+      - name: Upload error snippet
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-snippet
+          path: error-snippet.txt
+          if-no-files-found: ignore
+
+      - name: Upload full build log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
