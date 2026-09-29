@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: STEP 1 — ПЕРЕЗАПИСАТЬ buildozer.spec (источник истины)
+      - name: STEP 1 — ПЕРЕЗАПИСАТЬ buildozer.spec
         run: |
           cat > buildozer.spec << 'EOF'
           [app]
@@ -33,7 +33,7 @@ jobs:
           fullscreen = 0
           android.accept_sdk_license = True
           android.javabuildtool = ant
-
+          
           [buildozer]
           log_level = 2
           warn_on_root = 0
@@ -45,8 +45,7 @@ jobs:
           cat buildozer.spec
           echo "================================"
           grep -qx 'requirements = python3==3.12.11,hostpython3==3.12.11,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
-          grep -q '^android\.ndk' buildozer.spec && { echo "FAIL: остался android.ndk"; exit 1; }
-          grep -q '^android\.api' buildozer.spec && { echo "FAIL: остался android.api"; exit 1; }
+          grep -q '^android\.javabuildtool = ant' buildozer.spec || { echo "FAIL: javabuildtool не задан"; exit 1; }
           echo "OK: spec эталонный"
 
       - name: Set up Python 3.11
@@ -100,7 +99,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/.buildozer/android/packages
-          key: buildozer-pkgs-py312-ant-v1
+          key: buildozer-pkgs-py312-ant-v2
 
       - name: Clean old builds
         run: |
@@ -112,7 +111,7 @@ jobs:
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
-      # ---- ЗАГРУЗКА APK: при любом исходе, чтобы не потерять собранный файл ----
+      # ---- ЗАГРУЗКА APK: при любом исходе ----
       - name: Upload APK (всегда, если файл появился)
         if: always()
         uses: actions/upload-artifact@v4
@@ -121,19 +120,16 @@ jobs:
           path: bin/*.apk
           if-no-files-found: ignore
 
-      # ---- КОМПАКТНЫЙ ДИАГНОЗ: вытаскиваем окно вокруг первой ошибки ----
-      - name: Extract error snippet (диагноз в маленьком артефакте)
+      # ---- КОМПАКТНЫЙ ДИАГНОЗ: окно вокруг первой реальной ошибки ----
+      - name: Extract error snippet
         if: failure()
         run: |
-          echo "Ищу первую строку с ошибкой в build.log ..."
           LINE=$(grep -nE 'Traceback|\[ERROR\]|Build failed|Error:|error:|Exception' build.log | head -n1 | cut -d: -f1)
           if [ -n "$LINE" ]; then
             START=$((LINE-15)); [ "$START" -lt 1 ] && START=1
             END=$((LINE+40))
-            echo "Первая ошибка на строке $LINE — печатаю окно ${START}..${END}"
             sed -n "${START},${END}p" build.log > error-snippet.txt
           else
-            echo "Явных маркеров ошибки не найдено — печатаю последние 80 строк лога"
             tail -n 80 build.log > error-snippet.txt
           fi
           echo "===== error-snippet.txt ====="
