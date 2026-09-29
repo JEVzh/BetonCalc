@@ -29,10 +29,14 @@ jobs:
           source.include_exts = py,png
           version = 0.1
           requirements = python3==3.12.11,hostpython3==3.12.11,kivy
+          
+          # КРИТИЧНО: исключаем модули, которые не компилируются под Android/NDK r28c
+          python.modules.excludes = grp,posix_spawnp,crypt,nis,sunau,audioop,ossaudiodev,spwd,termios,pty,fcntl,mmap,select,syslog,resource,signal,_scproxy,tkinter,idlelib,turtledemo,unittest,test,pydoc_data,lib2to3,curses,distutils
+            
           orientation = portrait
           fullscreen = 0
           android.accept_sdk_license = True
-          android.javabuildtool = ant
+          android.javabuildtool = gradle
           
           [buildozer]
           log_level = 2
@@ -45,7 +49,7 @@ jobs:
           cat buildozer.spec
           echo "================================"
           grep -qx 'requirements = python3==3.12.11,hostpython3==3.12.11,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
-          grep -q '^android\.javabuildtool = ant' buildozer.spec || { echo "FAIL: javabuildtool не задан"; exit 1; }
+          grep -q '^python\.modules\.excludes' buildozer.spec || { echo "FAIL: excludes не задан"; exit 1; }
           echo "OK: spec эталонный"
 
       - name: Set up Python 3.11
@@ -99,7 +103,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/.buildozer/android/packages
-          key: buildozer-pkgs-py312-ant-v2
+          key: buildozer-pkgs-py312-excl-v1
 
       - name: Clean old builds
         run: |
@@ -111,7 +115,6 @@ jobs:
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
-      # ---- ЗАГРУЗКА APK: при любом исходе ----
       - name: Upload APK (всегда, если файл появился)
         if: always()
         uses: actions/upload-artifact@v4
@@ -120,7 +123,6 @@ jobs:
           path: bin/*.apk
           if-no-files-found: ignore
 
-      # ---- КОМПАКТНЫЙ ДИАГНОЗ: окно вокруг первой реальной ошибки ----
       - name: Extract error snippet
         if: failure()
         run: |
