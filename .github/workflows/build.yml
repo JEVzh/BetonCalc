@@ -29,15 +29,11 @@ jobs:
           source.include_exts = py,png
           version = 0.1
           requirements = python3==3.12.11,hostpython3==3.12.11,kivy
-          
-          # КРИТИЧНО: исключаем модули, которые не компилируются под Android/NDK r28c
-          python.modules.excludes = grp,posix_spawnp,crypt,nis,sunau,audioop,ossaudiodev,spwd,termios,pty,fcntl,mmap,select,syslog,resource,signal,_scproxy,tkinter,idlelib,turtledemo,unittest,test,pydoc_data,lib2to3,curses,distutils
-            
           orientation = portrait
           fullscreen = 0
           android.accept_sdk_license = True
           android.javabuildtool = gradle
-          
+
           [buildozer]
           log_level = 2
           warn_on_root = 0
@@ -49,7 +45,6 @@ jobs:
           cat buildozer.spec
           echo "================================"
           grep -qx 'requirements = python3==3.12.11,hostpython3==3.12.11,kivy' buildozer.spec || { echo "FAIL: requirements неверен"; exit 1; }
-          grep -q '^python\.modules\.excludes' buildozer.spec || { echo "FAIL: excludes не задан"; exit 1; }
           echo "OK: spec эталонный"
 
       - name: Set up Python 3.11
@@ -103,16 +98,57 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /home/runner/.buildozer/android/packages
-          key: buildozer-pkgs-py312-excl-v1
+          key: buildozer-pkgs-py312-grppatch-v1
 
       - name: Clean old builds
         run: |
           rm -rf .buildozer/android/platform/build-*
           rm -rf .buildozer/android/platform/python-for-android
 
-      - name: Build APK
+      - name: Patch python3 recipe — убрать grp и проблемные модули
+        run: |
+          # Ждём, пока p4a распакует python3, затем патчим Modules/Setup
+          # Используем p4a's hook через переменную окружения
+          export P4A_PYTHON3_PATCH="1"
+          
+          # Создаём скрипт-патч, который p4a выполнит после распаковки
+          mkdir -p /tmp/p4a_patches
+          cat > /tmp/p4a_patches/patch_python3.sh << 'PATCH_EOF'
+          #!/bin/bash
+          # Этот скрипт вызывается после распаковки python3
+          SETUP_FILE="$1/Modules/Setup"
+          if [ -f "$SETUP_FILE" ]; then
+            echo "Patching $SETUP_FILE — removing grp, nis, spwd, crypt, ossaudiodev, audioop..."
+            sed -i '/^grp /d' "$SETUP_FILE"
+            sed -i '/^nis /d' "$SETUP_FILE"
+            sed -i '/^spwd /d' "$SETUP_FILE"
+            sed -i '/^crypt /d' "$SETUP_FILE"
+            sed -i '/^ossaudiodev /d' "$SETUP_FILE"
+            sed -i '/^audioop /d' "$SETUP_FILE"
+            sed -i '/^sunau /d' "$SETUP_FILE"
+            sed -i '/^termios /d' "$SETUP_FILE"
+            sed -i '/^pty /d' "$SETUP_FILE"
+            sed -i '/^fcntl /d' "$SETUP_FILE"
+            sed -i '/^mmap /d' "$SETUP_FILE"
+            sed -i '/^select /d' "$SETUP_FILE"
+            sed -i '/^syslog /d' "$SETUP_FILE"
+            sed -i '/^resource /d' "$SETUP_FILE"
+            sed -i '/^signal /d' "$SETUP_FILE"
+            sed -i '/^_scproxy /d' "$SETUP_FILE"
+            echo "Patch applied successfully."
+          fi
+          PATCH_EOF
+          chmod +x /tmp/p4a_patches/patch_python3.sh
+          
+          # Устанавливаем hook через переменную окружения
+          export P4A_PYTHON3_POST_UNPACK_HOOK="/tmp/p4a_patches/patch_python3.sh"
+          echo "Patch script created at /tmp/p4a_patches/patch_python3.sh"
+
+      - name: Build APK (с патчем)
         run: |
           set -o pipefail
+          # Запускаем buildozer с переменной окружения для патча
+          export P4A_PYTHON3_POST_UNPACK_HOOK="/tmp/p4a_patches/patch_python3.sh"
           buildozer -v android debug 2>&1 | tee build.log
 
       - name: Upload APK (всегда, если файл появился)
